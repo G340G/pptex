@@ -1,0 +1,49 @@
+seed: 1337
+output: out.mp4
+
+format:
+  width: 640
+  height: 480
+  fps: 15
+  aspect: "4:3"
+
+story:
+  slide_count: 12
+  slide_sec: 3.0
+  include_wellness_ratio: 0.35   # % “normal” slides
+  keywords: ["memory", "training", "protocol", "happiness"]
+  encrypt_words: ["NAME", "LOOK", "REMEMBER"]
+  cipher: "rot13"                # rot13 | caesar | xor_b64
+  jane_doe_frequency: 0.18
+  fatal_frequency: 0.12
+
+sources:
+  use_local_images: true
+  use_local_faces: true
+  use_web_scrape: true
+  web:
+    provider: "wikimedia"
+    search_terms: ["office", "hallway", "telephone", "security camera", "portrait"]
+    max_download: 18
+    min_width: 600
+    license_allow: ["public domain", "cc by", "cc by-sa", "cc0"]
+
+effects:
+  enable_vhs: true
+  enable_glitch: true
+  enable_redactions: true
+  enable_flashes: true
+  enable_popups: true
+  intensity: 0.85        # 0..1
+  ppt90s_palette: true
+  ppt90s_wordart: true
+
+audio:
+  enable_tts: true
+  voice: "en-us"
+  tts_speed: 152
+  tts_pitch: 32
+  tts_amp: 170
+  weird_voice_fx: true
+  harsh_bed_level: 0.12
+  pop_count: 22
