@@ -13,7 +13,7 @@ from scipy.io.wavfile import write as write_wav, read as read_wav
 # ----------------------------
 # Global Constants
 # ----------------------------
-SR = 22050  # Sample Rate for audio (Added this to fix NameError)
+SR = 22050  # Sample Rate for audio
 
 # ----------------------------
 # Utilities / IO
@@ -34,6 +34,32 @@ def now_ms(seed=None):
         import time
         return int(time.time() * 1000)
     return seed * 9973
+
+# --- SAFE CONFIG PARSING HELPERS ---
+def safe_int(value, default: int) -> int:
+    """Expands env vars and safely casts to int, returning default on failure."""
+    if isinstance(value, int):
+        return value
+    s = str(value)
+    expanded = os.path.expandvars(s)
+    try:
+        return int(float(expanded)) # Handle "3.0" strings for ints
+    except (ValueError, TypeError):
+        # If it's still a placeholder like '${VAR}' or empty
+        print(f"WARNING: Could not parse int from '{value}' (expanded: '{expanded}'). Using default: {default}")
+        return default
+
+def safe_float(value, default: float) -> float:
+    """Expands env vars and safely casts to float, returning default on failure."""
+    if isinstance(value, (float, int)):
+        return float(value)
+    s = str(value)
+    expanded = os.path.expandvars(s)
+    try:
+        return float(expanded)
+    except (ValueError, TypeError):
+        print(f"WARNING: Could not parse float from '{value}' (expanded: '{expanded}'). Using default: {default}")
+        return default
 
 # ----------------------------
 # Ciphers (hidden meaning)
@@ -361,10 +387,13 @@ JANE_DOE = [
 ]
 
 def build_slides(cfg: dict, rng: random.Random) -> List[dict]:
-    sc = int(cfg["story"]["slide_count"])
-    wellness_ratio = float(cfg["story"].get("include_wellness_ratio", 0.35))
-    jane_freq = float(cfg["story"].get("jane_doe_frequency", 0.18))
-    fatal_freq = float(cfg["story"].get("fatal_frequency", 0.12))
+    # SAFE INT USAGE: Slide count defaults to 5 if missing/invalid
+    sc = safe_int(cfg["story"]["slide_count"], 5)
+    
+    wellness_ratio = safe_float(cfg["story"].get("include_wellness_ratio", 0.35), 0.35)
+    jane_freq = safe_float(cfg["story"].get("jane_doe_frequency", 0.18), 0.18)
+    fatal_freq = safe_float(cfg["story"].get("fatal_frequency", 0.12), 0.12)
+    
     kws = cfg["story"].get("keywords", []) or []
     enc_words = cfg["story"].get("encrypt_words", []) or []
     cipher = str(cfg["story"].get("cipher", "rot13"))
@@ -439,30 +468,20 @@ def main():
         cfg_path = "config.yaml"
     cfg = load_yaml(cfg_path)
 
-    # --- FIX START ---
-    # Handle environment variables (like ${SEED}) inside the config
-    raw_seed = str(cfg.get("seed", 1337))
-    # expandvars resolves ${SEED} -> actual value.
-    expanded_seed = os.path.expandvars(raw_seed)
-    
-    try:
-        seed = int(expanded_seed)
-    except ValueError:
-        print(f"WARNING: Seed '{raw_seed}' (expanded to '{expanded_seed}') is not a number. Defaulting to 1337.")
-        seed = 1337
-    # --- FIX END ---
-    
+    # Use safe_int to handle missing SEED env var
+    seed = safe_int(cfg.get("seed", 1337), 1337)
     rng = random.Random(seed)
 
     out_mp4 = str(cfg.get("output", "out.mp4"))
     ensure_dir("cache/web")
 
+    # Use safe_int for format specs
     spec = VidSpec(
-        w=int(cfg["format"]["width"]),
-        h=int(cfg["format"]["height"]),
-        fps=int(cfg["format"]["fps"]),
+        w=safe_int(cfg["format"]["width"], 640),
+        h=safe_int(cfg["format"]["height"], 480),
+        fps=safe_int(cfg["format"]["fps"], 24),
     )
-    slide_sec = float(cfg["story"].get("slide_sec", 3.0))
+    slide_sec = safe_float(cfg["story"].get("slide_sec", 3.0), 3.0)
 
     # --- collect images from repo ---
     local_imgs = sorted(glob.glob("assets/local/*"))
@@ -472,8 +491,8 @@ def main():
     web_imgs = []
     if bool(cfg["sources"].get("use_web_scrape", True)):
         terms = cfg["sources"]["web"].get("search_terms", []) or []
-        max_dl = int(cfg["sources"]["web"].get("max_download", 18))
-        min_w = int(cfg["sources"]["web"].get("min_width", 600))
+        max_dl = safe_int(cfg["sources"]["web"].get("max_download", 18), 18)
+        min_w = safe_int(cfg["sources"]["web"].get("min_width", 600), 600)
         urls = []
         for t in terms:
             urls.extend(wikimedia_search_image_urls(t, limit=max_dl, rng=rng))
@@ -534,7 +553,7 @@ def main():
     silent_path = "cache/_silent.mp4"
     audio_path = "cache/_audio.wav"
 
-    intensity = float(cfg["effects"].get("intensity", 0.85))
+    intensity = safe_float(cfg["effects"].get("intensity", 0.85), 0.85)
     enable_vhs = bool(cfg["effects"].get("enable_vhs", True))
     enable_glitch = bool(cfg["effects"].get("enable_glitch", True))
     enable_red = bool(cfg["effects"].get("enable_redactions", True))
@@ -642,14 +661,14 @@ def main():
     total_samples = int(dur * SR)
     t = np.linspace(0, dur, total_samples, False).astype(np.float32)
 
-    harsh_bed = float(cfg["audio"].get("harsh_bed_level", 0.12))
+    harsh_bed = safe_float(cfg["audio"].get("harsh_bed_level", 0.12), 0.12)
     audio = (np.random.uniform(-1,1,total_samples).astype(np.float32) * harsh_bed * 0.6)
     audio += (0.03*np.sin(2*np.pi*55*t) + 0.018*np.sin(2*np.pi*110*t)).astype(np.float32)
     audio += (0.02*np.sin(2*np.pi*30*t)).astype(np.float32)
     audio *= (0.82 + 0.18*np.sin(2*np.pi*0.18*t)).astype(np.float32)
 
     # abrupt pops
-    pop_count = int(cfg["audio"].get("pop_count", 20))
+    pop_count = safe_int(cfg["audio"].get("pop_count", 20), 20)
     for _ in range(pop_count):
         p0 = rng.randint(0, total_samples-1)
         span = rng.randint(int(0.01*SR), int(0.06*SR))
@@ -660,9 +679,9 @@ def main():
     # TTS narration (weird but intelligible)
     enable_tts = bool(cfg["audio"].get("enable_tts", True))
     voice = str(cfg["audio"].get("voice", "en-us"))
-    speed = int(cfg["audio"].get("tts_speed", 152))
-    pitch = int(cfg["audio"].get("tts_pitch", 32))
-    amp = int(cfg["audio"].get("tts_amp", 170))
+    speed = safe_int(cfg["audio"].get("tts_speed", 152), 152)
+    pitch = safe_int(cfg["audio"].get("tts_pitch", 32), 32)
+    amp = safe_int(cfg["audio"].get("tts_amp", 170), 170)
     weird_fx = bool(cfg["audio"].get("weird_voice_fx", True))
 
     if enable_tts:
