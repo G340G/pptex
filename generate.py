@@ -11,6 +11,11 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageFilter
 from scipy.io.wavfile import write as write_wav, read as read_wav
 
 # ----------------------------
+# Global Constants
+# ----------------------------
+SR = 22050  # Sample Rate for audio (Added this to fix NameError)
+
+# ----------------------------
 # Utilities / IO
 # ----------------------------
 def load_yaml(path: str) -> dict:
@@ -434,7 +439,19 @@ def main():
         cfg_path = "config.yaml"
     cfg = load_yaml(cfg_path)
 
-    seed = int(cfg.get("seed", 1337))
+    # --- FIX START ---
+    # Handle environment variables (like ${SEED}) inside the config
+    raw_seed = str(cfg.get("seed", 1337))
+    # expandvars resolves ${SEED} -> actual value.
+    expanded_seed = os.path.expandvars(raw_seed)
+    
+    try:
+        seed = int(expanded_seed)
+    except ValueError:
+        print(f"WARNING: Seed '{raw_seed}' (expanded to '{expanded_seed}') is not a number. Defaulting to 1337.")
+        seed = 1337
+    # --- FIX END ---
+    
     rng = random.Random(seed)
 
     out_mp4 = str(cfg.get("output", "out.mp4"))
