@@ -1,0 +1,142 @@
+name: Generate VHS PPT ARG Video
+
+on:
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: "Random seed"
+        required: false
+        default: "1337"
+      slide_count:
+        description: "Number of slides"
+        required: false
+        default: "12"
+      intensity:
+        description: "Effects intensity (0..1)"
+        required: false
+        default: "0.85"
+      keywords:
+        description: "Comma-separated keywords"
+        required: false
+        default: "memory,training,protocol,happiness"
+      encrypt_words:
+        description: "Comma-separated encrypted words"
+        required: false
+        default: "NAME,LOOK,REMEMBER"
+      scrape_terms:
+        description: "Comma-separated Wikimedia search terms"
+        required: false
+        default: "office,hallway,telephone,security camera,portrait"
+      use_web_scrape:
+        description: "true/false"
+        required: false
+        default: "true"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg espeak
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Create config.yaml from inputs
+        run: |
+          cat > config.yaml << 'YAML'
+          seed: ${SEED}
+          output: out.mp4
+          format:
+            width: 640
+            height: 480
+            fps: 15
+            aspect: "4:3"
+          story:
+            slide_count: ${SLIDE_COUNT}
+            slide_sec: 3.0
+            include_wellness_ratio: 0.35
+            keywords: ${KEYWORDS_LIST}
+            encrypt_words: ${ENCRYPT_LIST}
+            cipher: "rot13"
+            jane_doe_frequency: 0.18
+            fatal_frequency: 0.12
+          sources:
+            use_local_images: true
+            use_local_faces: true
+            use_web_scrape: ${USE_WEB_SCRAPE}
+            web:
+              provider: "wikimedia"
+              search_terms: ${SCRAPE_LIST}
+              max_download: 18
+              min_width: 600
+              license_allow: ["public domain", "cc by", "cc by-sa", "cc0"]
+          effects:
+            enable_vhs: true
+            enable_glitch: true
+            enable_redactions: true
+            enable_flashes: true
+            enable_popups: true
+            intensity: ${INTENSITY}
+            ppt90s_palette: true
+            ppt90s_wordart: true
+          audio:
+            enable_tts: true
+            voice: "en-us"
+            tts_speed: 152
+            tts_pitch: 32
+            tts_amp: 170
+            weird_voice_fx: true
+            harsh_bed_level: 0.12
+            pop_count: 22
+          YAML
+        env:
+          SEED: ${{ github.event.inputs.seed }}
+          SLIDE_COUNT: ${{ github.event.inputs.slide_count }}
+          INTENSITY: ${{ github.event.inputs.intensity }}
+          USE_WEB_SCRAPE: ${{ github.event.inputs.use_web_scrape }}
+          KEYWORDS_LIST: '["${{ github.event.inputs.keywords }}"]'
+          ENCRYPT_LIST: '["${{ github.event.inputs.encrypt_words }}"]'
+          SCRAPE_LIST: '["${{ github.event.inputs.scrape_terms }}"]'
+
+      - name: Normalize list fields in config (split comma strings)
+        run: |
+          python - << 'PY'
+          import yaml, re
+          cfg = yaml.safe_load(open("config.yaml","r",encoding="utf-8"))
+          def split_list(v):
+            if isinstance(v, list) and len(v)==1 and isinstance(v[0], str) and "," in v[0]:
+              return [x.strip() for x in v[0].split(",") if x.strip()]
+            if isinstance(v, list) and len(v)==1 and isinstance(v[0], str):
+              # allow single string -> [..]
+              s = v[0].strip()
+              if s.startswith("[") and s.endswith("]"):
+                return v
+              return [x.strip() for x in s.split(",") if x.strip()] if "," in s else ([s] if s else [])
+            return v
+          cfg["story"]["keywords"] = split_list(cfg["story"]["keywords"])
+          cfg["story"]["encrypt_words"] = split_list(cfg["story"]["encrypt_words"])
+          cfg["sources"]["web"]["search_terms"] = split_list(cfg["sources"]["web"]["search_terms"])
+          yaml.safe_dump(cfg, open("config.yaml","w",encoding="utf-8"), sort_keys=False)
+          print("config.yaml updated")
+          PY
+
+      - name: Generate video
+        run: |
+          python generate.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vhs-ppt-arg-video
+          path: out.mp4
